@@ -27,6 +27,8 @@ linters-settings:
   goconst:
     min-len:         2
     min-occurrences: 2
+  revive:
+    severity: "error"
  
 linters:
   disable-all: true
