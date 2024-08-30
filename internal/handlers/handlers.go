@@ -20,6 +20,18 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+const (
+	chatTable      = "chats"
+	tableID        = "id"
+	tableUsers     = "users"
+	tableCreatedAt = "created_at"
+
+	messageTable     = "messages"
+	tableSender      = "sender"
+	tableMessageText = "message_text"
+	tablePostedAt    = "posted_at"
+)
+
 var dbTimeOutDefault = time.Duration(5 * time.Second)
 
 type UserHandler struct {
@@ -80,31 +92,29 @@ func (u *UserHandler) Stop() {
 }
 
 func (u *UserHandler) Create(ctx context.Context, req *rpc.CreateRequest) (*rpc.CreateResponse, error) {
-	userNames := req.GetUsernames()
-
-	builderInsert := sq.Insert("chats").
+	builderInsert := sq.Insert(chatTable).
 		PlaceholderFormat(sq.Dollar).
-		Columns("users").
-		Values(pq.Array(userNames)).
+		Columns(tableUsers).
+		Values(pq.Array(req.GetUsernames())).
 		Suffix("RETURNING id")
 
 	query, args, err := builderInsert.ToSql()
 	if err != nil {
-		log.Printf("userNames: %v, %v", userNames, errors.Wrap(err, "ToSql"))
+		log.Printf("userNames: %v, %v", req.GetUsernames(), errors.Wrap(err, "ToSql"))
 		return nil, status.Error(codes.Internal, "preparing query")
 	}
 
-	var chatID int
 	ctxDB, cancel := context.WithTimeout(ctx, dbTimeOutDefault)
 	defer cancel()
 
+	var chatID int64
 	err = u.dbConn.QueryRow(ctxDB, query, args...).Scan(&chatID)
 	if err != nil {
-		log.Printf("userNames: %v, %v", userNames, errors.Wrap(err, "QueryRow"))
+		log.Printf("userNames: %v, %v", req.GetUsernames(), errors.Wrap(err, "QueryRow"))
 		return nil, status.Error(codes.Internal, "writing in db")
 	}
 
-	return &rpc.CreateResponse{ChatId: int64(chatID)}, nil
+	return &rpc.CreateResponse{ChatId: chatID}, nil
 }
 
 type Message struct {
@@ -113,7 +123,7 @@ type Message struct {
 	text   string
 }
 
-func getMessageFromSendMessageRequest(chatID int64, sender, message string) Message {
+func convertSendMessageRequestToMessage(chatID int64, sender, message string) Message {
 	return Message{
 		chatID: chatID,
 		sender: sender,
@@ -122,11 +132,11 @@ func getMessageFromSendMessageRequest(chatID int64, sender, message string) Mess
 }
 
 func (u *UserHandler) SendMessage(ctx context.Context, req *rpc.SendMsgRequest) (*emptypb.Empty, error) {
-	message := getMessageFromSendMessageRequest(req.GetChatId(), req.GetFrom(), req.GetText())
+	message := convertSendMessageRequestToMessage(req.GetChatId(), req.GetFrom(), req.GetText())
 
-	builderInsert := sq.Insert("messages").
+	builderInsert := sq.Insert(messageTable).
 		PlaceholderFormat(sq.Dollar).
-		Columns("id", "sender", "message_text").
+		Columns(tableID, tableSender, tableMessageText).
 		Values(message.chatID, message.sender, message.text)
 
 	query, args, err := builderInsert.ToSql()
@@ -152,24 +162,22 @@ func (u *UserHandler) SendMessage(ctx context.Context, req *rpc.SendMsgRequest) 
 }
 
 func (u *UserHandler) Delete(ctx context.Context, req *rpc.DeleteRequest) (*emptypb.Empty, error) {
-	chatID := req.GetChatId()
+	builderDelete := sq.Delete(chatTable).
+		PlaceholderFormat(sq.Dollar).
+		Where(sq.Eq{tableID: req.GetChatId()})
+
+	query, args, err := builderDelete.ToSql()
+	if err != nil {
+		log.Printf("chatID: %v, %v", req.GetChatId(), errors.Wrap(err, "ToSql"))
+		return nil, status.Error(codes.Internal, "preparing query")
+	}
 
 	ctxDB, cancel := context.WithTimeout(ctx, dbTimeOutDefault)
 	defer cancel()
 
-	builderDelete := sq.Delete("chats").
-		PlaceholderFormat(sq.Dollar).
-		Where(sq.Eq{"id": chatID})
-
-	query, args, err := builderDelete.ToSql()
-	if err != nil {
-		log.Printf("chatID: %v, %v", chatID, errors.Wrap(err, "ToSql"))
-		return nil, status.Error(codes.Internal, "preparing query")
-	}
-
 	tag, err := u.dbConn.Exec(ctxDB, query, args...)
 	if err != nil {
-		log.Printf("chatID: %v, %v", chatID, errors.Wrap(err, "Exec"))
+		log.Printf("chatID: %v, %v", req.GetChatId(), errors.Wrap(err, "Exec"))
 		return nil, status.Error(codes.Internal, "executing query")
 	}
 

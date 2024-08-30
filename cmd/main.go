@@ -32,7 +32,7 @@ func main() {
 	}
 
 	ctx := context.Background()
-	conn, err := pgxpool.Connect(ctx, pgConfig.GetDSN())
+	conn, err := pgxpool.Connect(ctx, pgConfig.DSN())
 	if err != nil {
 		log.Fatalf("db connection: %s", err.Error())
 	}
@@ -43,7 +43,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
 
-	err = server.ListenAndServe(ctx, grpcConfig.GetAddress())
+	err = server.ListenAndServe(ctx, grpcConfig.Address())
 	if err != nil {
 		log.Printf("start server: %s", err.Error())
 	}
