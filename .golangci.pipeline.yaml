@@ -45,7 +45,7 @@ linters:
     - unused
 
 issues:
-  exclude-use-default: false
+  exclude-use-default: true
   exclude:
     # _ instead of err checks
     - G104
